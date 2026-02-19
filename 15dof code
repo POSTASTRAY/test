@@ -1,0 +1,250 @@
+//1. GLOBAL VARIABLES & INITIALIZATION
+let STEP = 130
+let SHIFT = 80
+let DEAD = 40
+let KpRoll = 0.018
+let KpPitch = 0.012
+
+// Trims (Adjust these to calibrate your specific robot)
+let t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0
+let t7 = 0, t8 = 0, t9 = 0, t10 = 0, t11 = 0, t12 = 0, t13 = 0
+
+let roll = 0
+let pitch = 0
+let rollCorr = 0
+let pitchCorr = 0
+let SUPPORT = 0
+
+let recovering = false
+let walkingF = false
+let walkingB = false
+let isCrouched = false
+
+radio.setGroup(61)
+
+// ============================================================
+// 2. THE STABILITY HELPERS (THE FIX)
+// ============================================================
+
+/**
+ * Prevents "cannot read properties of undefined" by checking 
+ * the Servo driver and rounding all numbers.
+ */
+function safeServo(servoNum: number, angle: number) {
+    // Check if the 'Servo' namespace exists
+    if (typeof Servo !== 'undefined') {
+        // Use the servoNum variable for the first argument
+        // Use Math.round to prevent the ToString error
+        Servo.Servo(servoNum, Math.round(angle));
+    }
+}
+
+function ReadIMU() {
+    roll = input.acceleration(Dimension.X) || 0
+    pitch = input.acceleration(Dimension.Y) || 0
+}
+
+function ComputeBalance() {
+    if (Math.abs(roll) < DEAD) {
+        rollCorr = 0
+    } else {
+        rollCorr = Math.round(Math.max(-8, Math.min(8, roll * KpRoll)))
+    }
+    if (Math.abs(pitch) < DEAD) {
+        pitchCorr = 0
+    } else {
+        pitchCorr = Math.round(Math.max(-6, Math.min(6, pitch * KpPitch)))
+    }
+}
+
+function ApplyBalance() {
+    if (SUPPORT == 0) {
+        safeServo(0, 92 + t0 - pitchCorr)
+        safeServo(4, 90 + t4 + rollCorr)
+    } else {
+        safeServo(1, 88 + t1 - pitchCorr)
+        safeServo(5, 90 + t5 - rollCorr)
+    }
+}
+
+// ============================================================
+// 3. CORE POSES
+// ============================================================
+function Stand() {
+    walkingF = false
+    walkingB = false
+    isCrouched = false
+    basic.showIcon(IconNames.Square)
+    // Left Leg
+    safeServo(0, 90 + t0); safeServo(1, 88 + t1)
+    safeServo(2, 105 + t2); safeServo(3, 105 + t3)
+    // Right Leg
+    safeServo(4, 90 + t4); safeServo(5, 90 + t5)
+    safeServo(6, 90 + t6); safeServo(7, 90 + t7)
+    // Arms & Head
+    for (let i = 8; i <= 13; i++) { safeServo(i, 90) }
+}
+
+function Crouch() {
+    isCrouched = true
+    basic.showIcon(IconNames.Target)
+    safeServo(1, 130 + t1); safeServo(2, 60 + t2); safeServo(3, 140 + t3)
+    safeServo(5, 50 + t5); safeServo(6, 120 + t6); safeServo(7, 40 + t7)
+}
+
+// ============================================================
+// 4. LOCOMOTION (Walk, Turn, Strafe)
+// ============================================================
+function Walk_F() {
+    SUPPORT = 1
+    safeServo(4, 104 + t4); safeServo(5, 102 + t5)
+    basic.pause(SHIFT)
+    safeServo(2, 118 + t2); safeServo(0, 70 + t0)
+    basic.pause(STEP)
+    safeServo(2, 105 + t2); safeServo(0, 92 + t0)
+
+    SUPPORT = 0
+    safeServo(4, 76 + t4); safeServo(5, 78 + t5)
+    basic.pause(SHIFT)
+    safeServo(3, 118 + t3); safeServo(1, 110 + t1)
+    basic.pause(STEP)
+    safeServo(3, 105 + t3); safeServo(1, 88 + t1)
+}
+
+function Walk_B() {
+    SUPPORT = 1
+    safeServo(4, 104 + t4); safeServo(2, 118 + t2); safeServo(0, 110 + t0)
+    basic.pause(STEP)
+    safeServo(2, 105 + t2); safeServo(0, 92 + t0)
+
+    SUPPORT = 0
+    safeServo(4, 76 + t4); safeServo(3, 118 + t3); safeServo(1, 70 + t1)
+    basic.pause(STEP)
+    safeServo(3, 105 + t3); safeServo(1, 88 + t1)
+}
+
+function Turn_R() {
+    walkingF = false; walkingB = false
+    safeServo(0, 70 + t0); basic.pause(80)
+    safeServo(1, 70 + t1); basic.pause(100)
+    Stand()
+}
+
+function Turn_L() {
+    walkingF = false; walkingB = false
+    safeServo(4, 110 + t4); basic.pause(80)
+    safeServo(5, 110 + t5); basic.pause(100)
+    Stand()
+}
+
+function Strafe_R() {
+    safeServo(0, 105 + t0); safeServo(4, 105 + t4); basic.pause(SHIFT)
+    safeServo(6, 50 + t6); safeServo(7, 100 + t7); basic.pause(STEP)
+    safeServo(6, 90 + t6); safeServo(0, 90 + t0); safeServo(4, 90 + t4); basic.pause(STEP)
+    Stand()
+}
+
+function Strafe_L() {
+    safeServo(0, 75 + t0); safeServo(4, 75 + t4); basic.pause(SHIFT)
+    safeServo(2, 130 + t2); safeServo(3, 80 + t3); basic.pause(STEP)
+    safeServo(2, 105 + t2); safeServo(0, 90 + t0); safeServo(4, 90 + t4); basic.pause(STEP)
+    Stand()
+}
+
+// ============================================================
+// 5. COMBAT & RECOVERY
+// ============================================================
+function Punch_L() {
+    basic.showIcon(IconNames.Angry)
+    safeServo(4, 110 + t4); safeServo(1, 110 + t1); safeServo(5, 70 + t5)
+    safeServo(8, 160 + t8); safeServo(10, 150 + t10); basic.pause(100)
+    safeServo(10, 30 + t10); safeServo(0, 100 + t0); basic.pause(180)
+    Stand()
+}
+
+function Punch_R() {
+    basic.showIcon(IconNames.Angry)
+    safeServo(0, 70 + t0); safeServo(1, 110 + t1); safeServo(5, 70 + t5)
+    safeServo(11, 20 + t11); safeServo(13, 30 + t13); basic.pause(100)
+    safeServo(13, 150 + t13); safeServo(4, 80 + t4); basic.pause(180)
+    Stand()
+}
+
+function Kick_R() {
+    safeServo(0, 120 + t0); safeServo(4, 120 + t4); basic.pause(250)
+    safeServo(6, 140 + t6); safeServo(7, 60 + t7); safeServo(5, 40 + t5)
+    basic.pause(300)
+    Stand()
+}
+
+function GetUp_Front() {
+    recovering = true
+    safeServo(8, 0 + t8); safeServo(11, 180 + t11)
+    safeServo(2, 150 + t2); safeServo(6, 30 + t6); basic.pause(400)
+    safeServo(1, 40 + t1); safeServo(5, 140 + t5); basic.pause(300)
+    Stand()
+    recovering = false
+}
+
+function GetUp_Back() {
+    recovering = true
+    safeServo(8, 180 + t8); safeServo(11, 0 + t11)
+    safeServo(1, 150 + t1); safeServo(5, 30 + t5); basic.pause(400)
+    safeServo(2, 40 + t2); safeServo(6, 140 + t6); basic.pause(300)
+    Stand()
+    recovering = false
+}
+
+function CheckFall() {
+    ReadIMU()
+    if (Math.abs(pitch) > 750 && !recovering) {
+        basic.showIcon(IconNames.No)
+        recovering = true
+        walkingF = false; walkingB = false
+        basic.pause(800)
+        if (pitch > 0) { GetUp_Front() } else { GetUp_Back() }
+    }
+}
+
+// ============================================================
+// 6. RADIO CONTROL (With Undefined Guard)
+// ============================================================
+radio.onReceivedString(function (cmd) {
+    if (!cmd) return // CRITICAL FIX: Stops the crash if cmd is empty
+
+    if (cmd == "F") { walkingF = true; walkingB = false }
+    else if (cmd == "B") { walkingB = true; walkingF = false }
+    else if (cmd == "S") { Stand() }
+    else if (cmd == "L") { Turn_L() }
+    else if (cmd == "R") { Turn_R() }
+    else if (cmd == "SL") { Strafe_L() }
+    else if (cmd == "SR") { Strafe_R() }
+    else if (cmd == "Green") { Crouch() }
+    else if (cmd == "Blue") { Punch_L() }
+    else if (cmd == "Yellow") { Punch_R() }
+    else if (cmd == "Red") { Kick_R() }
+})
+
+// ============================================================
+// 7. MAIN LOOP
+// ============================================================
+Stand()
+
+basic.forever(function () {
+    if (!recovering) {
+        if (walkingF) {
+            Walk_F()
+        } else if (walkingB) {
+            Walk_B()
+        }
+
+        // Active Balancing Logic
+        if (!isCrouched && !walkingF && !walkingB) {
+            ReadIMU()
+            ComputeBalance()
+            ApplyBalance()
+        }
+    }
+    CheckFall()
+    basic.pause(20)
+})
